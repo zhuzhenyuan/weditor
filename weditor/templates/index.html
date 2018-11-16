@@ -78,6 +78,9 @@
           <div class="panel-heading">
             <i class="fa fa-empire" aria-hidden="true"></i> Selected Element
             <span class="pull-right">
+              <button v-on:click="screenshot()">截图</button>
+              <button v-on:click="screenshotUpload()">上传</button>
+              <button v-on:click="screenshotDone()">退出</button>
               <button :disabled="loading" class="button button-primary button-tiny button-rounded" v-on:click="dumpUI()">
                 <i class="fa fa-refresh"></i> DumpUI
               </button>

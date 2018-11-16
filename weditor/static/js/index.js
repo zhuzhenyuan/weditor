@@ -45,7 +45,18 @@ new Vue({
     ws: null,
     wsControl:null,
     rotation: null,
-    isFreeze: false
+    isFreeze: false,
+    // crop
+    localMouseDownListener: null,
+    localMouseHoverListener: null,
+    cropDownListener: null,
+    cropUpListener: null,
+    points:{
+      x1: 0,
+      y1: 0,
+      x2: 0,
+      y2: 0
+    }
   },
   watch: {
     platform: function (newval) {
@@ -542,11 +553,11 @@ new Vue({
         console.log("New message");
         var blob = new Blob([message.data], {
           type: 'image/jpeg'
-        })
+        });
         var img = self.imagePool.next();
         img.onload = function () {
-          canvas.width = img.width
-          canvas.height = img.height
+          canvas.width = img.width;
+          canvas.height = img.height;
           ctx.drawImage(img, 0, 0, img.width, img.height);
           self.resizeScreen(img);
 
@@ -555,14 +566,14 @@ new Vue({
           // leak huge amounts of memory when the developer tools are
           // open, probably to save the resources for inspection. When
           // the developer tools are closed no memory is leaked.
-          img.onload = img.onerror = null
-          img.src = BLANK_IMG
-          img = null
-          blob = null
+          img.onload = img.onerror = null;
+          img.src = BLANK_IMG;
+          img = null;
+          blob = null;
 
-          URL.revokeObjectURL(url)
+          URL.revokeObjectURL(url);
           url = null
-        }
+        };
 
         img.onerror = function () {
           // Happily ignore. I suppose this shouldn't happen, but
@@ -578,13 +589,13 @@ new Vue({
           URL.revokeObjectURL(url)
           url = null
         }
-        var url = URL.createObjectURL(blob)
+        var url = URL.createObjectURL(blob);
         img.src = url;
 
         if (/^rotation/.test(message.data)) {
             self.rotation = parseInt(message.data.substr('rotation '.length), 10);
         }
-      }
+      };
 
       ws.onclose = function (ev) {
         console.log("screen websocket closed")
@@ -1017,6 +1028,8 @@ new Vue({
       /* bind listeners */
       element.addEventListener('mousedown', mouseDownListener);
       element.addEventListener('mousemove', mouseHoverListener);
+      this.localMouseHoverListener = mouseHoverListener;
+      this.localMouseDownListener = mouseDownListener;
     },
     activeRemoteMouseControl: function () {
       /**
@@ -1135,6 +1148,80 @@ new Vue({
 
       /* bind listeners */
       element.addEventListener('mousedown', mouseDownListener);
+    },
+    // crop
+    screenshot: function () {
+      var self = this;
+      if(this.ws){
+        this.ws.close();
+      }
+      if(this.wsControl){
+        this.wsControl.close();
+      }
+
+      this.drawAllNodeFromSource('');
+
+      var canvas_fg = this.canvas.fg;
+      var canvas_bg = this.canvas.bg;
+      var ctx_fg = canvas_fg.getContext('2d');
+      var ctx_bg = canvas_bg.getContext('2d');
+
+
+      var x1, y1, x2, y2;
+      function down(event) {
+        ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
+        x1 = x2 = event.pageX;
+        y1 = y2 = event.pageY;
+
+        var rect = canvas_fg.getBoundingClientRect();
+        var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
+        x1 = (x1 - rect.left) * canvas_fg_scale;
+        y1 = (y1 - rect.top) * canvas_fg_scale;
+        x2 = (x2 - rect.left) * canvas_fg_scale - x1;
+        y2 = (y2 - rect.top) * canvas_fg_scale - y1;
+
+        canvas_fg.addEventListener('mousemove', move);
+      }
+      function move(event) {
+        ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
+        x2 = event.pageX;
+        y2 = event.pageY;
+        var rect = canvas_fg.getBoundingClientRect();
+        var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
+        x2 = (x2 - rect.left) * canvas_fg_scale - x1;
+        y2 = (y2 - rect.top) * canvas_fg_scale - y1;
+        ctx_fg.strokeRect(x1,y1,x2, y2);
+      }
+      function up(event) {
+        self.points.x1 = x1 * (canvas_bg.width/canvas_fg.width);
+        self.points.y1 = y1 * (canvas_bg.width/canvas_fg.width);
+        self.points.x2 = x2 * (canvas_bg.width/canvas_fg.width);
+        self.points.y2 = y2 * (canvas_bg.width/canvas_fg.width);
+        // ctx_bg.strokeRect(x1*(canvas_bg.width/canvas_fg.width),y1*(canvas_bg.width/canvas_fg.width),x2*(canvas_bg.width/canvas_fg.width), y2*(canvas_bg.width/canvas_fg.width));
+        // ctx_fg.strokeRect(x1,y1,x2, y2);
+          canvas_fg.removeEventListener('mousemove', move);
+      }
+
+      canvas_fg.removeEventListener('mousedown', this.localMouseDownListener);
+      canvas_fg.removeEventListener('mousemove', this.localMouseHoverListener);
+      canvas_fg.addEventListener('mousedown', down);
+      canvas_fg.addEventListener('mouseup', up);
+      this.cropDownListener = down;
+      this.cropUpListener = up;
+
+    },
+    screenshotDone: function () {
+        var canvas_fg = this.canvas.fg;
+        canvas_fg.removeEventListener('mousedown', this.cropDownListener);
+        canvas_fg.removeEventListener('mouseup', this.cropUpListener);
+        this.loadLiveScreen();
+        this.activeLocalUIMouseControl();
+        this.activeRemoteMouseControl();
+    },
+    screenshotUpload: function () {
+        var canvas_bg = this.canvas.bg;
+        var ctx_bg = canvas_bg.getContext('2d');
+        this.points;
     }
   }
 });

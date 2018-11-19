@@ -47,6 +47,11 @@ new Vue({
     rotation: null,
     isFreeze: false,
     // crop
+    enableUploadScreenshot: localStorage.enableUploadScreenshot || false,
+    uploadHostDisabled: localStorage.uploadHostDisabled || false,
+    uploadHostCfm: localStorage.uploadHostCfm || false,
+    uploadHost: localStorage.uploadHost || '',
+    enableScreenshot: false,
     localMouseDownListener: null,
     localMouseHoverListener: null,
     cropDownListener: null,
@@ -58,6 +63,7 @@ new Vue({
       x2: 0,
       y2: 0
     },
+    //crop end
   },
   watch: {
     platform: function (newval) {
@@ -65,7 +71,21 @@ new Vue({
     },
     serial: function (newval) {
       localStorage.setItem('serial', newval);
+    },
+    // crop
+    enableUploadScreenshot: function (newval) {
+      localStorage.setItem('enableUploadScreenshot', newval);
+    },
+    uploadHostDisabled: function (newval) {
+      localStorage.setItem('uploadHostDisabled', newval);
+    },
+    uploadHostCfm: function (newval) {
+      localStorage.setItem('uploadHostCfm', newval);
+    },
+    uploadHost: function (newval) {
+      localStorage.setItem('uploadHost', newval);
     }
+    // crop end
   },
   computed: {
     cursorValue: function () {
@@ -427,6 +447,9 @@ new Vue({
       }
     },
     dumpUI: function () {
+      if(this.enableScreenshot){
+        this.screenshotDone();  // 如果处于截图状态，则取消截图
+      }
       if(this.isFreeze == false){
         this.screenDumpUIJstree();
       } else {
@@ -607,7 +630,8 @@ new Vue({
     },
     freezeHandler: function(){
       if(this.wsControl == null || this.platform == 'iOS'){
-        this.screenDumpUI();
+        // this.screenDumpUI();
+        this.showAjaxError("");
         return
       }
       if(this.isFreeze){
@@ -615,6 +639,9 @@ new Vue({
         this.loadLiveScreen();
         this.isFreeze = false;
       } else {
+        if(this.enableScreenshot){
+          this.screenshotDone();  // 如果处于截图状态，则取消截图
+        }
         if(this.ws){
           this.ws.close();
         }
@@ -1154,8 +1181,31 @@ new Vue({
       element.addEventListener('mousedown', mouseDownListener);
     },
     // crop
+    uploadHostConf: function () {
+      this.uploadHostCfm = !this.uploadHostCfm;
+      this.uploadHostDisabled = !this.uploadHostDisabled;
+    },
     screenshot: function () {
+
       var self = this;
+      self.loading = true;
+      // this.canvasStyle.opacity = 0.5;
+      // setTimeout(function () {
+      //   self.loading = false;
+      //   self.canvasStyle.opacity = 1.0;
+      // }, 1000);
+
+      if(!this.ws){
+        self.showAjaxError("");  // Check if the device is connected
+        return;
+      }
+      if(this.ws.readyState == 3){
+        // 如果是冻结状态，先解除
+        this.activeRemoteMouseControl();
+        this.loadLiveScreen();
+        this.isFreeze = false;
+      }
+      self.enableScreenshot = true;
       if(this.ws){
         this.ws.close();
       }
@@ -1168,89 +1218,195 @@ new Vue({
       var canvas_fg = this.canvas.fg;
       var canvas_bg = this.canvas.bg;
       var ctx_fg = canvas_fg.getContext('2d');
+      ctx_fg.strokeStyle = 'red';
+      ctx_fg.setLineDash([]);  //实线
+      ctx_fg.lineWidth = 3;
       var ctx_bg = canvas_bg.getContext('2d');
 
-
-      var x1, y1, x2, y2;
+      var click_x, click_y;
+      var draw_x1, draw_y1, draw_x2, draw_y2;
       function down(event) {
         ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
-        x1 = x2 = event.pageX;
-        y1 = y2 = event.pageY;
-
-        var rect = canvas_fg.getBoundingClientRect();
-        var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
-        x1 = (x1 - rect.left) * canvas_fg_scale;
-        y1 = (y1 - rect.top) * canvas_fg_scale;
-        x2 = (x2 - rect.left) * canvas_fg_scale - x1;
-        y2 = (y2 - rect.top) * canvas_fg_scale - y1;
-        // console.log("down: "+x1 + "  " + y1);
-        canvas_fg.addEventListener('mousemove', move);
+        click_x = event.pageX;
+        click_y = event.pageY;
+        document.addEventListener('mousemove', move);
       }
       function move(event) {
         ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
-        x2 = event.pageX;
-        y2 = event.pageY;
-          console.log("move: "+x2 + "  " + y2);
-          var rect = canvas_fg.getBoundingClientRect();
-          var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
-          x2 = (x2 - rect.left) * canvas_fg_scale - x1;
-          y2 = (y2 - rect.top) * canvas_fg_scale - y1;
-          ctx_fg.strokeRect(x1,y1,x2, y2);
+        var rect = canvas_fg.getBoundingClientRect();
+        var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
+        var event_x = event.pageX;
+        var event_y = event.pageY;
+        draw_x1 = draw_y1 = draw_x2 = draw_y2 = 0;
+        // 左上到右下
+        if(event_x > click_x && event_y > click_y){
+          if(click_x > rect.right || click_y > rect.bottom){
+            return;
+          }
+          if(event_x > rect.left && event_y > rect.top){
+            draw_x2 = (event_x - rect.left) * canvas_fg_scale;
+            draw_y2 = (event_y - rect.top) * canvas_fg_scale;
+            if(click_x > rect.left){
+              draw_x1 = (click_x - rect.left) * canvas_fg_scale;
+            }
+            if(click_y > rect.top){
+              draw_y1 = (click_y - rect.top) * canvas_fg_scale;
+            }
+          }
+          if(event_x > rect.right){
+            draw_x2 = (rect.right - rect.left) * canvas_fg_scale;
+          }
+          if(event_y > rect.bottom){
+            draw_y2 = (rect.bottom - rect.top) * canvas_fg_scale;
+          }
+        }
+        // 左下到右上
+        if(event_x > click_x && event_y < click_y){
+          if(click_x > rect.right || click_y < rect.top){
+            return;
+          }
+          if(event_x > rect.left && event_y < rect.bottom){
+            draw_y1 = (event_y - rect.top) * canvas_fg_scale;
+            draw_x2 = (event_x - rect.left) * canvas_fg_scale;
+            if(click_x > rect.left){
+                draw_x1 = (click_x - rect.left) * canvas_fg_scale;
+            }
+            if(click_y < rect.bottom){
+                draw_y2 = (click_y - rect.top) * canvas_fg_scale;
+            }else{
+                draw_y2 = (rect.bottom - rect.top) * canvas_fg_scale;
+            }
+          }
+          if(event_y < rect.top){
+            draw_y1 = 0;
+          }
+          if(event_x > rect.right){
+            draw_x2 = (rect.right - rect.left) * canvas_fg_scale;
+          }
+        }
+        // 右下到左上
+        if(event_x < click_x && event_y < click_y){
+          if(click_x < rect.left || click_y < rect.top){
+            return;
+          }
+          if(event_x < rect.right && event_y < rect.bottom){
+            draw_x1 = (event_x - rect.left) * canvas_fg_scale;
+            draw_y1 = (event_y - rect.top) * canvas_fg_scale;
+            if(click_x < rect.right){
+              draw_x2 = (click_x - rect.left) * canvas_fg_scale;
+            } else{
+              draw_x2 = (rect.right - rect.left) * canvas_fg_scale;
+            }
+            if(click_y < rect.bottom){
+              draw_y2 = (click_y - rect.top) * canvas_fg_scale;
+            } else{
+              draw_y2 = (rect.bottom - rect.top)* canvas_fg_scale;
+            }
+          }
+          if(event_x < rect.left){
+            draw_x1 = 0;
+          }
+          if(event_y < rect.top){
+            draw_y1 = 0;
+          }
+        }
+        // 右上到左下
+        if(event_x < click_x && event_y > click_y){
+          if(click_x < rect.left || click_y > rect.bottom){
+            return;
+          }
+          if(event_x < rect.right && event_y > rect.top){
+            draw_x1 = (event_x - rect.left) * canvas_fg_scale;
+            draw_y2 = (event_y - rect.top) * canvas_fg_scale;
+            if(click_x < rect.right){
+              draw_x2 = (click_x - rect.left) * canvas_fg_scale;
+            } else{
+              draw_x2 = (rect.right - rect.left) * canvas_fg_scale;
+            }
+            if(click_y > rect.top){
+              draw_y1 = (click_y - rect.top) * canvas_fg_scale;
+            }
+          }
+          if(event_x < rect.left){
+            draw_x1 = 0;
+          }
+          if(event_y > rect.bottom){
+            draw_y2 = (rect.bottom - rect.top) * canvas_fg_scale;
+          }
+        }
+        ctx_fg.strokeRect(draw_x1, draw_y1, draw_x2 - draw_x1, draw_y2 - draw_y1);
       }
       function up(event) {
         var ratio = canvas_bg.width/canvas_fg.width;
-        self.points.x1 = x1 * ratio;
-        self.points.y1 = y1 * ratio;
-        self.points.x2 = x2 * ratio + self.points.x1;
-        self.points.y2 = y2 * ratio + self.points.y1;
-        // ctx_bg.strokeRect(x1*(canvas_bg.width/canvas_fg.width),y1*(canvas_bg.width/canvas_fg.width),x2*(canvas_bg.width/canvas_fg.width), y2*(canvas_bg.width/canvas_fg.width));
-        // ctx_bg.strokeRect(self.points.x1,self.points.y1,self.points.x2, self.points.y2);
-        canvas_fg.removeEventListener('mousemove', move);
-          // console.log("up: "+x1 + "  " + y1 +"    " + x2 + "  " + y2);
-          // console.log("pointsup: "+self.points.x1 + "  " + self.points.y1 +"    " + self.points.x2 + "  " + self.points.y2);
+        self.points.x1 = draw_x1 * ratio;
+        self.points.y1 = draw_y1 * ratio;
+        self.points.x2 = draw_x2 * ratio;
+        self.points.y2 = draw_y2 * ratio;
+        document.removeEventListener('mousemove', move);
       }
-
       canvas_fg.removeEventListener('mousedown', this.localMouseDownListener);
       canvas_fg.removeEventListener('mousemove', this.localMouseHoverListener);
-      canvas_fg.addEventListener('mousedown', down);
-      canvas_fg.addEventListener('mouseup', up);
+      document.addEventListener('mousedown', down);
+      document.addEventListener('mouseup', up);
       this.cropDownListener = down;
       this.cropUpListener = up;
 
     },
     screenshotDone: function () {
-        var canvas_fg = this.canvas.fg;
-        canvas_fg.removeEventListener('mousedown', this.cropDownListener);
-        canvas_fg.removeEventListener('mouseup', this.cropUpListener);
-        this.loadLiveScreen();
-        this.activeLocalUIMouseControl();
-        this.activeRemoteMouseControl();
+      this.enableScreenshot = false;
+      var canvas_fg = this.canvas.fg;
+      var ctx_fg = canvas_fg.getContext('2d');
+      ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
+
+      document.removeEventListener('mousedown', this.cropDownListener);
+      document.removeEventListener('mouseup', this.cropUpListener);
+      this.loadLiveScreen();
+      this.activeLocalUIMouseControl();
+      this.activeRemoteMouseControl();
+      this.screenDumpUIJstree();
     },
     screenshotUpload: function () {
-        var canvas_bg = this.canvas.bg;
-        var ctx_bg = canvas_bg.getContext('2d');
-        // var imgData = new File([this.cropBlob], "crop_img.jpg");
-        // if(this.cropBlob.size < 10000){
-        //   return;
-        // }
-        // if(this.cropBlob.size > 10000){
-        //   alert("this.cropBlob.size");
-        // }
-        var formData  = new FormData();
-        formData.append('file', this.cropBlob);
-        formData.append('points', JSON.stringify(this.points));
+      if(!this.uploadHost || !this.points.x1){
+        return;
+      }
+      // var canvas_bg = this.canvas.bg;
+      // var ctx_bg = canvas_bg.getContext('2d');
+      // var imgData = new File([this.cropBlob], "crop_img.jpg");
+      // if(this.cropBlob.size < 10000){
+      //   return;
+      // }
+      // if(this.cropBlob.size > 10000){
+      //   alert("this.cropBlob.size");
+      // }
+      var formData  = new FormData();
+      formData.append('supportNetwork', self.enableUploadScreenshot);
+      formData.append('host', this.uploadHost);
+      formData.append('file', this.cropBlob);
+      formData.append('points', JSON.stringify(this.points));
 
-        $.ajax({
-          method: 'post',
-          url: LOCAL_URL + 'api/v1/crop',
-          data:formData,
-          dataType: 'json',
-          processData: false,
-          contentType: false,
-        })
-        .then(function (ret) {
-          alert(ret.name);
-        }.bind(this))
+      $.ajax({
+        method: 'post',
+        url: LOCAL_URL + 'api/v1/crop',
+        data:formData,
+        dataType: 'json',
+        processData: false,
+        contentType: false,
+      })
+      .then(function (ret) {
+        if(this.enableUploadScreenshot){
+          var code = "";
+          if(ret.success){
+              code = "d.ext_aircv.click('" + ret.name +"')";
+          } else {
+              code = ret.info;
+          }
+          this.codeInsert(code);
+        } else {
+          // todo 保存到本地
+        }
+
+      }.bind(this))
     }
+    //crop end
   }
 });

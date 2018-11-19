@@ -322,6 +322,7 @@ class DeviceCodeDebugHandler(BaseHandler):
 
 class CropHandler(BaseHandler):
     def post(self):
+        # 截图
         points = json.loads(self.get_argument('points'))
         img_data_blob = self.request.files['file'][0]['body']
         im_pic = Image.open(BytesIO(img_data_blob))
@@ -333,16 +334,32 @@ class CropHandler(BaseHandler):
         data_bin = output.getvalue()
         output.close()
 
-        files = {'image': ('crop.jpg', data_bin, 'image/jpg')}
-        url = "http://127.0.0.1:8000/image_service/upload"
-        res = requests.post(url, files=files)
-        ret_data = json.loads(res.text)
-        self.write({
-            "success": ret_data.get("success"),
-            "existed": ret_data.get("existed"),
-            "name": ret_data.get("name"),
-            "info": ret_data.get("info")
-        })
+        if self.get_argument('supportNetwork'):
+            ret_data = {}
+            path = "/image_service/upload"
+            host = self.get_argument('host')
+            url = "".join(["http://", host, path])
+            # url = "http://127.0.0.1:8000/image_service/upload"
+
+            files = {'image': ('crop.jpg', data_bin, 'image/jpg')}
+            try:
+                res = requests.post(url, files=files)
+                ret_data = json.loads(res.text)
+            except Exception as e:
+                ret_data['success'] = False
+                ret_data['info'] = str(e)
+            self.write({
+                "success": ret_data.get("success"),
+                "existed": ret_data.get("existed"),
+                "name": ret_data.get("name"),
+                "info": ret_data.get("info")
+            })
+        else:
+            # 返回数据
+            self.write({
+                "data": data_bin
+            })
+
 
 
 def make_app(settings={}):

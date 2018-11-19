@@ -51,12 +51,13 @@ new Vue({
     localMouseHoverListener: null,
     cropDownListener: null,
     cropUpListener: null,
+    cropBlob: null,
     points:{
       x1: 0,
       y1: 0,
       x2: 0,
       y2: 0
-    }
+    },
   },
   watch: {
     platform: function (newval) {
@@ -554,6 +555,9 @@ new Vue({
         var blob = new Blob([message.data], {
           type: 'image/jpeg'
         });
+        if(blob.size > 50000){  // 这里5000是参考值，只是保证blob的数据是800*450的图片数据
+            self.cropBlob = blob;
+        }
         var img = self.imagePool.next();
         img.onload = function () {
           canvas.width = img.width;
@@ -1179,27 +1183,31 @@ new Vue({
         y1 = (y1 - rect.top) * canvas_fg_scale;
         x2 = (x2 - rect.left) * canvas_fg_scale - x1;
         y2 = (y2 - rect.top) * canvas_fg_scale - y1;
-
+        // console.log("down: "+x1 + "  " + y1);
         canvas_fg.addEventListener('mousemove', move);
       }
       function move(event) {
         ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
         x2 = event.pageX;
         y2 = event.pageY;
-        var rect = canvas_fg.getBoundingClientRect();
-        var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
-        x2 = (x2 - rect.left) * canvas_fg_scale - x1;
-        y2 = (y2 - rect.top) * canvas_fg_scale - y1;
-        ctx_fg.strokeRect(x1,y1,x2, y2);
+          console.log("move: "+x2 + "  " + y2);
+          var rect = canvas_fg.getBoundingClientRect();
+          var canvas_fg_scale = 1.0 * canvas_fg.width / rect.width;
+          x2 = (x2 - rect.left) * canvas_fg_scale - x1;
+          y2 = (y2 - rect.top) * canvas_fg_scale - y1;
+          ctx_fg.strokeRect(x1,y1,x2, y2);
       }
       function up(event) {
-        self.points.x1 = x1 * (canvas_bg.width/canvas_fg.width);
-        self.points.y1 = y1 * (canvas_bg.width/canvas_fg.width);
-        self.points.x2 = x2 * (canvas_bg.width/canvas_fg.width);
-        self.points.y2 = y2 * (canvas_bg.width/canvas_fg.width);
+        var ratio = canvas_bg.width/canvas_fg.width;
+        self.points.x1 = x1 * ratio;
+        self.points.y1 = y1 * ratio;
+        self.points.x2 = x2 * ratio + self.points.x1;
+        self.points.y2 = y2 * ratio + self.points.y1;
         // ctx_bg.strokeRect(x1*(canvas_bg.width/canvas_fg.width),y1*(canvas_bg.width/canvas_fg.width),x2*(canvas_bg.width/canvas_fg.width), y2*(canvas_bg.width/canvas_fg.width));
-        // ctx_fg.strokeRect(x1,y1,x2, y2);
-          canvas_fg.removeEventListener('mousemove', move);
+        // ctx_bg.strokeRect(self.points.x1,self.points.y1,self.points.x2, self.points.y2);
+        canvas_fg.removeEventListener('mousemove', move);
+          // console.log("up: "+x1 + "  " + y1 +"    " + x2 + "  " + y2);
+          // console.log("pointsup: "+self.points.x1 + "  " + self.points.y1 +"    " + self.points.x2 + "  " + self.points.y2);
       }
 
       canvas_fg.removeEventListener('mousedown', this.localMouseDownListener);
@@ -1221,7 +1229,28 @@ new Vue({
     screenshotUpload: function () {
         var canvas_bg = this.canvas.bg;
         var ctx_bg = canvas_bg.getContext('2d');
-        this.points;
+        // var imgData = new File([this.cropBlob], "crop_img.jpg");
+        // if(this.cropBlob.size < 10000){
+        //   return;
+        // }
+        // if(this.cropBlob.size > 10000){
+        //   alert("this.cropBlob.size");
+        // }
+        var formData  = new FormData();
+        formData.append('file', this.cropBlob);
+        formData.append('points', JSON.stringify(this.points));
+
+        $.ajax({
+          method: 'post',
+          url: LOCAL_URL + 'api/v1/crop',
+          data:formData,
+          dataType: 'json',
+          processData: false,
+          contentType: false,
+        })
+        .then(function (ret) {
+          alert(ret.name);
+        }.bind(this))
     }
   }
 });

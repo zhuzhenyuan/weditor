@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import os
+import struct
 import sys
 import platform
 import time
@@ -18,11 +19,13 @@ import traceback
 import uuid
 from io import BytesIO
 
+import requests
 import six
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
 import tornado.escape
+from PIL import Image
 from tornado import gen
 from tornado.escape import json_encode
 from tornado.log import enable_pretty_logging
@@ -41,6 +44,9 @@ try:
 except:
     import subprocess
     from subprocess import PIPE
+
+
+from io import BytesIO
 
 from weditor import uidumplib
 
@@ -314,11 +320,37 @@ class DeviceCodeDebugHandler(BaseHandler):
         })
 
 
+class CropHandler(BaseHandler):
+    def post(self):
+        points = json.loads(self.get_argument('points'))
+        img_data_blob = self.request.files['file'][0]['body']
+        im_pic = Image.open(BytesIO(img_data_blob))
+        image_data = im_pic.crop((int(points['x1']), int(points['y1']), int(points['x2']), int(points['y2'])))
+
+        output = BytesIO()
+        image_data.save(output, format='JPEG')
+        image_data.close()
+        data_bin = output.getvalue()
+        output.close()
+
+        files = {'image': ('crop.jpg', data_bin, 'image/jpg')}
+        url = "http://127.0.0.1:8000/image_service/upload"
+        res = requests.post(url, files=files)
+        ret_data = json.loads(res.text)
+        self.write({
+            "success": ret_data.get("success"),
+            "existed": ret_data.get("existed"),
+            "name": ret_data.get("name"),
+            "info": ret_data.get("info")
+        })
+
+
 def make_app(settings={}):
     application = tornado.web.Application([
         (r"/", MainHandler),
         (r"/api/v1/version", VersionHandler),
         (r"/api/v1/connect", DeviceConnectHandler),
+        (r"/api/v1/crop", CropHandler),
         (r"/api/v1/devices/([^/]+)/screenshot", DeviceScreenshotHandler),
         (r"/api/v1/devices/([^/]+)/hierarchy", DeviceHierarchyHandler),
         (r"/api/v1/devices/([^/]+)/exec", DeviceCodeDebugHandler),

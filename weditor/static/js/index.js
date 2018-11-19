@@ -74,16 +74,32 @@ new Vue({
     },
     // crop
     enableUploadScreenshot: function (newval) {
-      localStorage.setItem('enableUploadScreenshot', newval);
+      if(newval){
+        localStorage.setItem('enableUploadScreenshot', newval);
+      } else {
+        localStorage.setItem('enableUploadScreenshot', '');
+      }
     },
     uploadHostDisabled: function (newval) {
-      localStorage.setItem('uploadHostDisabled', newval);
+      if(newval){
+        localStorage.setItem('uploadHostDisabled', newval);
+      } else {
+        localStorage.setItem('uploadHostDisabled', '');
+      }
     },
     uploadHostCfm: function (newval) {
-      localStorage.setItem('uploadHostCfm', newval);
+      if(newval){
+        localStorage.setItem('uploadHostCfm', newval);
+      } else {
+        localStorage.setItem('uploadHostCfm', '');
+      }
     },
     uploadHost: function (newval) {
-      localStorage.setItem('uploadHost', newval);
+      if(newval){
+        localStorage.setItem('uploadHost', newval);
+      } else {
+        localStorage.setItem('uploadHost', '');
+      }
     }
     // crop end
   },
@@ -1403,6 +1419,7 @@ new Vue({
           this.codeInsert(code);
         } else {
           // todo 保存到本地
+          alert(ret.data);
         }
 
       }.bind(this))

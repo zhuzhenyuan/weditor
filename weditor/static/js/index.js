@@ -55,7 +55,8 @@ new Vue({
     localMouseDownListener: null,
     localMouseHoverListener: null,
     cropDownListener: null,
-    cropUpListener: null,
+    cropUploadListener: null,
+    cropExitListener: null,
     cropBlob: null,
     points:{
       x1: 0,
@@ -178,6 +179,8 @@ new Vue({
     this.loading = true;
     this.checkVersion();
 
+    //启用截图快捷键
+    document.addEventListener('keyup', this.quickScreenshot);
     // this.screenRefresh()
     // this.loadLiveScreen();
   },
@@ -239,7 +242,6 @@ new Vue({
             this.activeRemoteMouseControl();
             this.loadLiveScreen();
           }
-
         }.bind(this))
         .fail(function (ret) {
           this.showAjaxError(ret);
@@ -562,7 +564,7 @@ new Vue({
         url = null
         dtd.reject();
       }
-      var url = URL.createObjectURL(blob)
+      var url = URL.createObjectURL(blob);
       img.src = url;
       return dtd;
     },
@@ -594,7 +596,7 @@ new Vue({
         var blob = new Blob([message.data], {
           type: 'image/jpeg'
         });
-        if(blob.size > 50000){  // 这里5000是参考值，只是保证blob的数据是800*450的图片数据
+        if(blob.size > 10000){  // 这里 10000 是参考值，只是保证blob的数据是800*450的图片数据
             self.cropBlob = blob;
         }
         var img = self.imagePool.next();
@@ -1197,6 +1199,26 @@ new Vue({
       element.addEventListener('mousedown', mouseDownListener);
     },
     // crop
+    downFile: function(url, saveName) {
+      //url 下载地址，也可以是一个blob对象，必选
+      //saveName 保存文件名，可选
+      if(typeof url == 'object' && url instanceof Blob)
+      {
+          url = URL.createObjectURL(url); // 创建blob地址
+      }
+      var aLink = document.createElement('a');
+      aLink.href = url;
+      aLink.download = saveName || ''; // HTML5新增的属性，指定保存文件名，可以不要后缀，注意，file:///模式下不会生效
+      var event;
+      if(window.MouseEvent) event = new MouseEvent('click');
+      else
+      {
+          event = document.createEvent('MouseEvents');
+          event.initMouseEvent('click', true, false, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+      }
+      aLink.dispatchEvent(event);
+
+    },
     uploadHostConf: function () {
       this.uploadHostCfm = !this.uploadHostCfm;
       this.uploadHostDisabled = !this.uploadHostDisabled;
@@ -1205,11 +1227,6 @@ new Vue({
 
       var self = this;
       self.loading = true;
-      // this.canvasStyle.opacity = 0.5;
-      // setTimeout(function () {
-      //   self.loading = false;
-      //   self.canvasStyle.opacity = 1.0;
-      // }, 1000);
 
       if(!this.ws){
         self.showAjaxError("");  // Check if the device is connected
@@ -1237,15 +1254,22 @@ new Vue({
       ctx_fg.strokeStyle = 'red';
       ctx_fg.setLineDash([]);  //实线
       ctx_fg.lineWidth = 3;
-      var ctx_bg = canvas_bg.getContext('2d');
+      // var ctx_bg = canvas_bg.getContext('2d');
 
       var click_x, click_y;
       var draw_x1, draw_y1, draw_x2, draw_y2;
       function down(event) {
+        if(event.which != 1){
+          return;
+        }
         ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
         click_x = event.pageX;
         click_y = event.pageY;
+        draw_x1 = draw_y1 = draw_x2 = draw_y2 = 0;
+
+        document.removeEventListener('mouseup', screenshotUpload);
         document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
       }
       function move(event) {
         ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
@@ -1353,76 +1377,100 @@ new Vue({
         ctx_fg.strokeRect(draw_x1, draw_y1, draw_x2 - draw_x1, draw_y2 - draw_y1);
       }
       function up(event) {
+        if(event.which != 1){
+          return;
+        }
         var ratio = canvas_bg.width/canvas_fg.width;
         self.points.x1 = draw_x1 * ratio;
         self.points.y1 = draw_y1 * ratio;
         self.points.x2 = draw_x2 * ratio;
         self.points.y2 = draw_y2 * ratio;
+
         document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.addEventListener("mouseup", screenshotUpload);
       }
+      function screenshotUpload(event) {
+        if(event.which != 2){
+            return;
+          }
+        if(!self.points.y2){
+          return;
+        }
+        var formData  = new FormData();
+        formData.append('supportNetwork', self.enableUploadScreenshot);
+        formData.append('host', self.uploadHost);
+        formData.append('file', self.cropBlob);
+        formData.append('points', JSON.stringify(self.points));
+
+        $.ajax({
+          method: 'post',
+          url: LOCAL_URL + 'api/v1/crop',
+          data:formData,
+          dataType: 'json',
+          processData: false,
+          contentType: false,
+        })
+        .then(function (ret) {
+          if(self.enableUploadScreenshot){
+            var code = "";
+            if(ret.success){
+                code = "d.ext_aircv.click('" + ret.name +"')";
+                self.codeInsert(code);
+            } else {
+                self.showError(ret.info);
+            }
+          } else {
+            var blob = b64toBlob(ret.data, 'image/' + ret.type);
+            var url = URL.createObjectURL(blob);
+            self.downFile(url);
+          }
+        }.bind(self))
+      }
+      function quickExitScreenshot(event) {
+        if(!self.enableScreenshot){
+          return;
+        }
+        var keyCode = event.keyCode || event.which || event.charCode;
+        if(keyCode === 27){  // esc
+          self.screenshotDone();
+        }
+      }
+
       canvas_fg.removeEventListener('mousedown', this.localMouseDownListener);
       canvas_fg.removeEventListener('mousemove', this.localMouseHoverListener);
       document.addEventListener('mousedown', down);
-      document.addEventListener('mouseup', up);
+      document.addEventListener('keyup', quickExitScreenshot);
+
       this.cropDownListener = down;
-      this.cropUpListener = up;
+      this.cropUploadListener = screenshotUpload;
+      this.cropExitListener = quickExitScreenshot;
 
     },
     screenshotDone: function () {
+      document.removeEventListener('mousedown', this.cropDownListener);
+      document.removeEventListener('mouseup', this.cropUploadListener);
+      document.removeEventListener('keyup', this.cropExitListener);
+
       this.enableScreenshot = false;
       var canvas_fg = this.canvas.fg;
       var ctx_fg = canvas_fg.getContext('2d');
       ctx_fg.clearRect(0, 0, canvas_fg.width, canvas_fg.height);
 
-      document.removeEventListener('mousedown', this.cropDownListener);
-      document.removeEventListener('mouseup', this.cropUpListener);
       this.loadLiveScreen();
       this.activeLocalUIMouseControl();
       this.activeRemoteMouseControl();
       this.screenDumpUIJstree();
     },
-    screenshotUpload: function () {
-      if(!this.uploadHost || !this.points.x1){
+    quickScreenshot: function () {
+      if(this.enableScreenshot){
         return;
       }
-      // var canvas_bg = this.canvas.bg;
-      // var ctx_bg = canvas_bg.getContext('2d');
-      // var imgData = new File([this.cropBlob], "crop_img.jpg");
-      // if(this.cropBlob.size < 10000){
-      //   return;
-      // }
-      // if(this.cropBlob.size > 10000){
-      //   alert("this.cropBlob.size");
-      // }
-      var formData  = new FormData();
-      formData.append('supportNetwork', self.enableUploadScreenshot);
-      formData.append('host', this.uploadHost);
-      formData.append('file', this.cropBlob);
-      formData.append('points', JSON.stringify(this.points));
-
-      $.ajax({
-        method: 'post',
-        url: LOCAL_URL + 'api/v1/crop',
-        data:formData,
-        dataType: 'json',
-        processData: false,
-        contentType: false,
-      })
-      .then(function (ret) {
-        if(this.enableUploadScreenshot){
-          var code = "";
-          if(ret.success){
-              code = "d.ext_aircv.click('" + ret.name +"')";
-          } else {
-              code = ret.info;
-          }
-          this.codeInsert(code);
-        } else {
-          // todo 保存到本地
-          alert(ret.data);
-        }
-
-      }.bind(this))
+      var keyCode = event.keyCode || event.which || event.charCode;
+      var ctrlKey = event.ctrlKey || event.metaKey;
+      if(ctrlKey && keyCode === 88){  // ctrl + x
+        this.screenshot();
+      }
     }
     //crop end
   }

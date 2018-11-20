@@ -97,13 +97,13 @@
             <span class="pull-right">
               <button :disabled="loading" v-show="!enableScreenshot"
                       class="button button-primary button-tiny button-rounded" v-on:click="screenshot()">
-                <i class="fa fa-refresh"></i> 截图</button>
+                <i class="fa fa-crop"></i> 截图</button>
               <button :disabled="loading" v-show="enableScreenshot"
                       class="button button-primary button-tiny button-rounded" v-on:click="screenshotDone()">
-                <i class="fa fa-refresh"></i> 退出</button>
-              <button :disabled="loading"
-                      class="button button-primary button-tiny button-rounded" v-on:click="screenshotUpload()">
-                <i class="fa fa-refresh"></i> 上传</button>
+                <i class="fa fa-crop"></i> 退出</button>
+              <!--<button :disabled="loading"-->
+                      <!--class="button button-primary button-tiny button-rounded" v-on:click="screenshotUpload()">-->
+                <!--<i class="fa fa-refresh"></i> 上传</button>-->
               <button :disabled="loading" class="button button-primary button-tiny button-rounded" v-on:click="dumpUI()">
                 <i class="fa fa-refresh"></i> DumpUI
               </button>

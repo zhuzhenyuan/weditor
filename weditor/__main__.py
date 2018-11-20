@@ -334,7 +334,7 @@ class CropHandler(BaseHandler):
         data_bin = output.getvalue()
         output.close()
 
-        if self.get_argument('supportNetwork'):
+        if self.get_argument('supportNetwork') == "true":
             ret_data = {}
             path = "/image_service/upload"
             host = self.get_argument('host')
@@ -355,9 +355,12 @@ class CropHandler(BaseHandler):
                 "info": ret_data.get("info")
             })
         else:
+            b64data = base64.b64encode(data_bin)
             # 返回数据
             self.write({
-                "data": data_bin
+                "type": "jpeg",
+                "encoding": "base64",
+                "data": b64data.decode('utf-8')
             })
 
 
